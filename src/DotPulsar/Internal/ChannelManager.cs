@@ -137,7 +137,7 @@ namespace DotPulsar.Internal
             _ = response.ContinueWith(result =>
             {
                 if (result.Result.CommandType == BaseCommand.Type.Success)
-                   _consumerChannels.Remove(consumerId)?.Unsubscribed();
+                    _consumerChannels.Remove(consumerId)?.Unsubscribed();
             }, TaskContinuationOptions.OnlyOnRanToCompletion);
 
             return response;
@@ -161,6 +161,9 @@ namespace DotPulsar.Internal
             => _requestResponseHandler.Outgoing(command);
 
         public Task<BaseCommand> Outgoing(CommandPartitionedTopicMetadata command)
+            => _requestResponseHandler.Outgoing(command);
+
+        public Task<BaseCommand> Outgoing(CommandGetTopicsOfNamespace command)
             => _requestResponseHandler.Outgoing(command);
 
         public Task<BaseCommand> Outgoing(CommandSeek command)
@@ -239,6 +242,7 @@ namespace DotPulsar.Internal
         private IDisposable TakeConsumerSenderLock(ulong consumerId)
         {
             var channel = _consumerChannels[consumerId];
+
             if (channel is null)
                 throw new OperationCanceledException();
 
@@ -248,6 +252,7 @@ namespace DotPulsar.Internal
         private IDisposable TakeProducerSenderLock(ulong producerId)
         {
             var channel = _producerChannels[producerId];
+
             if (channel is null)
                 throw new OperationCanceledException();
 

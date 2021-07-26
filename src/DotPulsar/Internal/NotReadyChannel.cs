@@ -31,7 +31,7 @@ namespace DotPulsar.Internal
         public ValueTask ClosedByClient(CancellationToken cancellationToken)
             => new();
 
-        public ValueTask<IMessage<TMessage>> Receive(CancellationToken cancellationToken = default)
+        public ValueTask<IMessage<TMessage>> Receive(string topic, CancellationToken cancellationToken = default)
             => throw GetException();
 
         public Task<CommandSendReceipt> Send(MessageMetadata metadata, ReadOnlySequence<byte> payload, CancellationToken cancellationToken)

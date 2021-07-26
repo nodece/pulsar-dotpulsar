@@ -29,14 +29,16 @@ namespace DotPulsar.Internal
         private readonly IMessageFactory<TMessage> _messageFactory;
         private readonly Queue<IMessage<TMessage>> _messages;
         private readonly LinkedList<Batch> _batches;
+        private readonly string _topic;
 
-        public BatchHandler(bool trackBatches, IMessageFactory<TMessage> messageFactory)
+        public BatchHandler(string topic, bool trackBatches, IMessageFactory<TMessage> messageFactory)
         {
             _lock = new object();
             _trackBatches = trackBatches;
             _messageFactory = messageFactory;
             _messages = new Queue<IMessage<TMessage>>();
             _batches = new LinkedList<Batch>();
+            _topic = topic;
         }
 
         public IMessage<TMessage> Add(MessageIdData messageId, uint redeliveryCount, MessageMetadata metadata, ReadOnlySequence<byte> data)
@@ -52,7 +54,7 @@ namespace DotPulsar.Internal
                 var singleMetadata = Serializer.Deserialize<SingleMessageMetadata>(data.Slice(index, singleMetadataSize));
                 index += singleMetadataSize;
                 var singleMessageId = new MessageId(messageId.LedgerId, messageId.EntryId, messageId.Partition, i);
-                var message = _messageFactory.Create(singleMessageId, redeliveryCount, data.Slice(index, singleMetadata.PayloadSize), metadata, singleMetadata);
+                var message = _messageFactory.Create(_topic, singleMessageId, redeliveryCount, data.Slice(index, singleMetadata.PayloadSize), metadata, singleMetadata);
                 messages.Add(message);
                 index += (uint) singleMetadata.PayloadSize;
             }

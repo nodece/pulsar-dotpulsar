@@ -80,121 +80,57 @@ namespace DotPulsar.Internal.Extensions
             });
 
         public static BaseCommand AsBaseCommand(this CommandAck command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.Ack,
-                Ack = command
-            };
+            => new() { CommandType = BaseCommand.Type.Ack, Ack = command };
 
         public static BaseCommand AsBaseCommand(this CommandConnect command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.Connect,
-                Connect = command
-            };
+            => new() { CommandType = BaseCommand.Type.Connect, Connect = command };
 
         public static BaseCommand AsBaseCommand(this CommandPing command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.Ping,
-                Ping = command
-            };
+            => new() { CommandType = BaseCommand.Type.Ping, Ping = command };
 
         public static BaseCommand AsBaseCommand(this CommandPong command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.Pong,
-                Pong = command
-            };
+            => new() { CommandType = BaseCommand.Type.Pong, Pong = command };
 
         public static BaseCommand AsBaseCommand(this CommandProducer command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.Producer,
-                Producer = command
-            };
+            => new() { CommandType = BaseCommand.Type.Producer, Producer = command };
 
         public static BaseCommand AsBaseCommand(this CommandGetLastMessageId command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.GetLastMessageId,
-                GetLastMessageId = command
-            };
+            => new() { CommandType = BaseCommand.Type.GetLastMessageId, GetLastMessageId = command };
 
         public static BaseCommand AsBaseCommand(this CommandUnsubscribe command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.Unsubscribe,
-                Unsubscribe = command
-            };
+            => new() { CommandType = BaseCommand.Type.Unsubscribe, Unsubscribe = command };
 
         public static BaseCommand AsBaseCommand(this CommandSubscribe command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.Subscribe,
-                Subscribe = command
-            };
+            => new() { CommandType = BaseCommand.Type.Subscribe, Subscribe = command };
 
         public static BaseCommand AsBaseCommand(this CommandLookupTopic command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.Lookup,
-                LookupTopic = command
-            };
+            => new() { CommandType = BaseCommand.Type.Lookup, LookupTopic = command };
 
         public static BaseCommand AsBaseCommand(this CommandSend command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.Send,
-                Send = command
-            };
+            => new() { CommandType = BaseCommand.Type.Send, Send = command };
 
         public static BaseCommand AsBaseCommand(this CommandFlow command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.Flow,
-                Flow = command
-            };
+            => new() { CommandType = BaseCommand.Type.Flow, Flow = command };
 
         public static BaseCommand AsBaseCommand(this CommandCloseProducer command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.CloseProducer,
-                CloseProducer = command
-            };
+            => new() { CommandType = BaseCommand.Type.CloseProducer, CloseProducer = command };
 
         public static BaseCommand AsBaseCommand(this CommandCloseConsumer command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.CloseConsumer,
-                CloseConsumer = command
-            };
+            => new() { CommandType = BaseCommand.Type.CloseConsumer, CloseConsumer = command };
 
         public static BaseCommand AsBaseCommand(this CommandSeek command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.Seek,
-                Seek = command
-            };
-        
+            => new() { CommandType = BaseCommand.Type.Seek, Seek = command };
+
         public static BaseCommand AsBaseCommand(this CommandRedeliverUnacknowledgedMessages command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.RedeliverUnacknowledgedMessages,
-                RedeliverUnacknowledgedMessages = command
-            };
+            => new() { CommandType = BaseCommand.Type.RedeliverUnacknowledgedMessages, RedeliverUnacknowledgedMessages = command };
 
         public static BaseCommand AsBaseCommand(this CommandGetOrCreateSchema command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.GetOrCreateSchema,
-                GetOrCreateSchema = command
-            };
+            => new() { CommandType = BaseCommand.Type.GetOrCreateSchema, GetOrCreateSchema = command };
 
         public static BaseCommand AsBaseCommand(this CommandPartitionedTopicMetadata command)
-            => new()
-            {
-                CommandType = BaseCommand.Type.PartitionedMetadata, PartitionMetadata = command
-            };
+            => new() { CommandType = BaseCommand.Type.PartitionedMetadata, PartitionMetadata = command };
+
+        public static BaseCommand AsBaseCommand(this CommandGetTopicsOfNamespace command)
+            => new() { CommandType = BaseCommand.Type.GetTopicsOfNamespace, GetTopicsOfNamespace = command };
     }
 }

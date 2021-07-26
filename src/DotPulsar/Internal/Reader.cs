@@ -71,7 +71,7 @@ namespace DotPulsar.Internal
         public bool IsFinalState(ReaderState state)
             => _state.IsFinalState(state);
 
-        public async ValueTask<MessageId> GetLastMessageId(CancellationToken cancellationToken)
+        public async ValueTask<IMessageId> GetLastMessageId(CancellationToken cancellationToken)
         {
             ThrowIfDisposed();
 
@@ -90,7 +90,7 @@ namespace DotPulsar.Internal
         }
 
         private async ValueTask<IMessage<TMessage>> ReceiveMessage(CancellationToken cancellationToken)
-            => await _channel.Receive(cancellationToken).ConfigureAwait(false);
+            => await _channel.Receive(Topic, cancellationToken).ConfigureAwait(false);
 
         public async ValueTask Seek(MessageId messageId, CancellationToken cancellationToken)
         {

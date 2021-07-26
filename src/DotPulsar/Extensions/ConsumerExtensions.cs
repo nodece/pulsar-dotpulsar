@@ -30,14 +30,14 @@ namespace DotPulsar.Extensions
         /// <summary>
         /// Acknowledge the consumption of a single message.
         /// </summary>
-        public static async ValueTask Acknowledge(this IConsumer consumer, IMessage message, CancellationToken cancellationToken = default)
-            => await consumer.Acknowledge(message.MessageId, cancellationToken).ConfigureAwait(false);
+        // public static async ValueTask Acknowledge(this IConsumer consumer, IMessage message, CancellationToken cancellationToken = default)
+        //     => await consumer.Acknowledge(message, cancellationToken).ConfigureAwait(false);
 
         /// <summary>
         /// Acknowledge the consumption of all the messages in the topic up to and including the provided message.
         /// </summary>
         public static async ValueTask AcknowledgeCumulative(this IConsumer consumer, IMessage message, CancellationToken cancellationToken = default)
-            => await consumer.AcknowledgeCumulative(message.MessageId, cancellationToken).ConfigureAwait(false);
+            => await consumer.AcknowledgeCumulative(message, cancellationToken).ConfigureAwait(false);
 
         /// <summary>
         /// Process and auto-acknowledge a message. This is experimental.
@@ -83,11 +83,7 @@ namespace DotPulsar.Extensions
                     {
                         activity.SetTag("otel.status_code", "ERROR");
 
-                        var exceptionTags = new ActivityTagsCollection
-                        {
-                            { "exception.type", exception.GetType().FullName },
-                            { "exception.stacktrace", exception.ToString() }
-                        };
+                        var exceptionTags = new ActivityTagsCollection { { "exception.type", exception.GetType().FullName }, { "exception.stacktrace", exception.ToString() } };
 
                         if (!string.IsNullOrWhiteSpace(exception.Message))
                             exceptionTags.Add("exception.message", exception.Message);
@@ -99,7 +95,7 @@ namespace DotPulsar.Extensions
 
                 activity?.Dispose();
 
-                await consumer.Acknowledge(message.MessageId, cancellationToken).ConfigureAwait(false);
+                await consumer.Acknowledge(message, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -110,9 +106,10 @@ namespace DotPulsar.Extensions
 
             var properties = message.Properties;
 
-            if (properties.TryGetValue("traceparent", out var traceparent))  // TODO Allow the user to overwrite the keys 'traceparent' and 'tracestate'
+            if (properties.TryGetValue("traceparent", out var traceparent)) // TODO Allow the user to overwrite the keys 'traceparent' and 'tracestate'
             {
                 var tracestate = properties.ContainsKey("tracestate") ? properties["tracestrate"] : null;
+
                 if (ActivityContext.TryParse(traceparent, tracestate, out var activityContext))
                     return DotPulsarActivitySource.ActivitySource.StartActivity(operationName, ActivityKind.Consumer, activityContext, tags);
             }

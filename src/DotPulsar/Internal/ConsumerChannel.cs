@@ -61,17 +61,13 @@ namespace DotPulsar.Internal
 
             _lock = new AsyncLock();
 
-            _cachedCommandFlow = new CommandFlow
-            {
-                ConsumerId = id,
-                MessagePermits = messagePrefetchCount
-            };
+            _cachedCommandFlow = new CommandFlow { ConsumerId = id, MessagePermits = messagePrefetchCount };
 
             _sendWhenZero = 0;
             _firstFlow = true;
         }
 
-        public async ValueTask<IMessage<TMessage>> Receive(CancellationToken cancellationToken)
+        public async ValueTask<IMessage<TMessage>> Receive(string topic, CancellationToken cancellationToken)
         {
             using (await _lock.Lock(cancellationToken).ConfigureAwait(false))
             {
@@ -102,6 +98,7 @@ namespace DotPulsar.Internal
                     if (metadata.Compression != CompressionType.None)
                     {
                         var decompressor = _decompressors[(int) metadata.Compression];
+
                         if (decompressor is null)
                             throw new CompressionException($"Support for {metadata.Compression} compression was not found");
 
@@ -132,7 +129,7 @@ namespace DotPulsar.Internal
                         }
                     }
 
-                    return _messageFactory.Create(messageId.ToMessageId(), redeliveryCount, data, metadata);
+                    return _messageFactory.Create(topic, messageId.ToMessageId(), redeliveryCount, data, metadata);
                 }
             }
         }
@@ -211,11 +208,7 @@ namespace DotPulsar.Internal
 
         private async Task RejectPackage(MessagePackage messagePackage, CommandAck.ValidationErrorType validationErrorType, CancellationToken cancellationToken)
         {
-            var ack = new CommandAck
-            {
-                Type = CommandAck.AckType.Individual,
-                ValidationError = validationErrorType
-            };
+            var ack = new CommandAck { Type = CommandAck.AckType.Individual, ValidationError = validationErrorType };
 
             ack.MessageIds.Add(messagePackage.MessageId);
 

@@ -20,6 +20,7 @@ namespace DotPulsar.Internal.Abstractions
 
     public interface IMessageFactory<TValue>
     {
-        IMessage<TValue> Create(MessageId messageId, uint redeliveryCount, ReadOnlySequence<byte> data, MessageMetadata metadata, SingleMessageMetadata? singleMetadata = null);
+        IMessage<TValue> Create(string topic, MessageId messageId, uint redeliveryCount, ReadOnlySequence<byte> data, MessageMetadata metadata, SingleMessageMetadata? singleMetadata
+         = null);
     }
 }

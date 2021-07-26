@@ -15,6 +15,8 @@
 namespace DotPulsar
 {
     using DotPulsar.Abstractions;
+    using Internal;
+    using System.Collections.Generic;
 
     /// <summary>
     /// The consumer building options.
@@ -47,19 +49,9 @@ namespace DotPulsar
         public static readonly SubscriptionType DefaultSubscriptionType = SubscriptionType.Exclusive;
 
         /// <summary>
-        /// Initializes a new instance using the specified subscription name and topic.
+        ///  Set the topic for this consumer.
         /// </summary>
-        public ConsumerOptions(string subscriptionName, string topic, ISchema<TMessage> schema)
-        {
-            InitialPosition = DefaultInitialPosition;
-            PriorityLevel = DefaultPriorityLevel;
-            MessagePrefetchCount = DefaultMessagePrefetchCount;
-            ReadCompacted = DefaultReadCompacted;
-            SubscriptionType = DefaultSubscriptionType;
-            SubscriptionName = subscriptionName;
-            Topic = topic;
-            Schema = schema;
-        }
+        public static ISet<string> topicNames;
 
         /// <summary>
         /// Set the consumer name. This is optional.
@@ -107,8 +99,18 @@ namespace DotPulsar
         public SubscriptionType SubscriptionType { get; set; }
 
         /// <summary>
-        /// Set the topic for this consumer. This is required.
+        /// Set the topic names for this consumer.
         /// </summary>
-        public string Topic { get; set; }
-    }
+        public ISet<string> TopicNames { get; set; }
+
+        /// <summary>
+        /// Set the topic pattern for this consumer.
+        /// </summary>
+        public string TopicsPattern { get; set; }
+
+        /// <summary>
+        /// The subscription mode for TopicsPattern.
+        /// </summary>
+        public RegexSubscriptionMode RegexSubscriptionMode { get; set; }
+    };
 }

@@ -18,6 +18,7 @@ namespace DotPulsar.Tests
 {
     using DotPulsar;
     using FluentAssertions;
+    using System;
     using Xunit;
 
     public class MessageIdTests

@@ -24,7 +24,9 @@ namespace DotPulsar.Internal
     using System;
     using System.Collections.Concurrent;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.Linq;
+    using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -37,9 +39,8 @@ namespace DotPulsar.Internal
         private readonly StateManager<ConsumerState> _state;
         private readonly IConnectionPool _connectionPool;
         private readonly CancellationTokenSource _cts;
-        private readonly ConcurrentDictionary<int, IConsumer<TMessage>> _consumers;
+        private readonly ConcurrentDictionary<string, IConsumer<TMessage>> _consumers;
         private ConcurrentQueue<IMessage<TMessage>> _messagesQueue;
-        private bool _isPartitionedTopic = false;
         private int _consumersCount;
         private int _isDisposed;
         private Exception? _throw;
@@ -47,6 +48,10 @@ namespace DotPulsar.Internal
         public Uri ServiceUrl { get; }
         public string SubscriptionName { get; }
         public string Topic { get; }
+        public ISet<string> TopicNames { get; }
+        public string TopicsPattern { get; }
+        public RegexSubscriptionMode RegexSubscriptionMode { get; }
+        public uint NumberOfPartitions { get; }
 
         public Consumer(
             Uri serviceUrl,
@@ -55,9 +60,12 @@ namespace DotPulsar.Internal
             IHandleException exceptionHandler,
             IConnectionPool connectionPool)
         {
-            _state = new StateManager<ConsumerState>(ConsumerState.Disconnected, ConsumerState.Closed, ConsumerState.ReachedEndOfTopic, ConsumerState.Faulted);
+            _state = new StateManager<ConsumerState>(ConsumerState.Disconnected, ConsumerState.Closed,
+                ConsumerState.ReachedEndOfTopic, ConsumerState.Faulted);
             ServiceUrl = serviceUrl;
-            Topic = options.Topic;
+            TopicNames = options.TopicNames;
+            TopicsPattern = options.TopicsPattern;
+            RegexSubscriptionMode = options.RegexSubscriptionMode;
             SubscriptionName = options.SubscriptionName;
             _options = options;
             _exceptionHandler = exceptionHandler;
@@ -66,8 +74,23 @@ namespace DotPulsar.Internal
             _cts = new CancellationTokenSource();
             _executor = new Executor(Guid.Empty, this, _exceptionHandler);
             _isDisposed = 0;
-            _consumers = new ConcurrentDictionary<int, IConsumer<TMessage>>();
+            _consumers = new ConcurrentDictionary<string, IConsumer<TMessage>>();
             _messagesQueue = new ConcurrentQueue<IMessage<TMessage>>();
+
+            if (!string.IsNullOrEmpty(TopicsPattern))
+            {
+                if (TopicNames != null && TopicNames.Count != 0)
+                {
+                    throw new Exception("Topic names list must be null when use topicsPattern");
+                }
+            }
+            else
+            {
+                if (TopicNames == null || TopicNames.Count == 0)
+                {
+                    throw new Exception("Topic names list cannot be null");
+                }
+            }
 
             _ = Setup();
         }
@@ -78,7 +101,18 @@ namespace DotPulsar.Internal
 
             try
             {
-                await _executor.Execute(Monitor, _cts.Token).ConfigureAwait(false);
+                List<string> topics;
+
+                if (!string.IsNullOrEmpty(TopicsPattern))
+                {
+                    topics = await GetPatternTopic(TopicsPattern);
+                }
+                else
+                {
+                    topics = TopicNames.ToList();
+                }
+
+                await _executor.Execute(() => Monitor(topics), _cts.Token).ConfigureAwait(false);
             }
             catch (Exception exception)
             {
@@ -107,40 +141,59 @@ namespace DotPulsar.Internal
             };
             var messagePrefetchCount = _options.MessagePrefetchCount;
             var messageFactory = new MessageFactory<TMessage>(_options.Schema);
-            var batchHandler = new BatchHandler<TMessage>(true, messageFactory);
+            var batchHandler = new BatchHandler<TMessage>(topic, true, messageFactory);
             var decompressorFactories = CompressionFactories.DecompressorFactories();
 
-            var factory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory,
+            var factory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool,
+                subscribe, messagePrefetchCount, batchHandler, messageFactory,
                 decompressorFactories);
-            var stateManager = new StateManager<ConsumerState>(ConsumerState.Disconnected, ConsumerState.Closed, ConsumerState.ReachedEndOfTopic, ConsumerState.Faulted);
+
+            var stateManager = new StateManager<ConsumerState>(ConsumerState.Disconnected, ConsumerState.Closed,
+                ConsumerState.ReachedEndOfTopic, ConsumerState.Faulted);
             var initialChannel = new NotReadyChannel<TMessage>();
             var executor = new Executor(correlationId, _processManager, _exceptionHandler);
-            var consumer = new SubConsumer<TMessage>(correlationId, ServiceUrl, _options.SubscriptionName, topic, _processManager, initialChannel, executor, stateManager, factory);
-            var process = new ConsumerProcess(correlationId, stateManager, consumer, _options.SubscriptionType == SubscriptionType.Failover);
+
+            var consumer = new SubConsumer<TMessage>(correlationId, ServiceUrl, _options.SubscriptionName, topic,
+                _processManager, initialChannel, executor, stateManager, factory);
+
+            var process = new ConsumerProcess(correlationId, stateManager, consumer,
+                _options.SubscriptionType == SubscriptionType.Failover);
             _processManager.Add(process);
             process.Start();
             return consumer;
         }
 
-        private async Task Monitor()
+        private async Task Monitor(IEnumerable<string> topics)
         {
-            var numberOfPartitions = await GetNumberOfPartitions(Topic, _cts.Token).ConfigureAwait(false);
-            _isPartitionedTopic = numberOfPartitions != 0;
-            var monitoringTasks = new Task<ConsumerStateChanged>[_isPartitionedTopic ? numberOfPartitions : 1];
+            var topicNumberOfPartitionsDictionary = new Dictionary<string, uint>();
 
-            var topic = Topic;
-
-            for (var partition = 0; partition < monitoringTasks.Length; ++partition)
+            foreach (var topic in topics)
             {
-                if (_isPartitionedTopic)
-                    topic = $"{Topic}-partition-{partition}";
-
-                var consumer = CreateSubConsumer(topic);
-                _ = _consumers.TryAdd(partition, consumer);
-                monitoringTasks[partition] = consumer.StateChangedFrom(ConsumerState.Disconnected, _cts.Token).AsTask();
+                var numberOfPartitions = await GetNumberOfPartitions(topic, _cts.Token).ConfigureAwait(false);
+                topicNumberOfPartitionsDictionary.Add(topic, numberOfPartitions);
             }
 
-            Interlocked.Exchange(ref _consumersCount, monitoringTasks.Length);
+            var monitoringTasks = new List<Task<ConsumerStateChanged>>();
+
+            foreach (var topic in topicNumberOfPartitionsDictionary
+                .Where(n => n.Value == 0)
+                .Select(n => n.Key)
+                .Concat(
+                    topicNumberOfPartitionsDictionary
+                        .Where(n => n.Value != 0)
+                        .Select(n =>
+                        {
+                            return Enumerable.Range(0, Convert.ToInt32(n.Value)).Select(m => $"{n.Key}-partition-{m}");
+                        })
+                        .SelectMany(n => n)
+                ))
+            {
+                var consumer = CreateSubConsumer(topic);
+                _ = _consumers.TryAdd(topic, consumer);
+                monitoringTasks.Add(consumer.StateChangedFrom(ConsumerState.Disconnected, _cts.Token).AsTask());
+            }
+
+            Interlocked.Exchange(ref _consumersCount, monitoringTasks.Count);
 
             var activeConsumers = 0;
 
@@ -148,7 +201,7 @@ namespace DotPulsar.Internal
             {
                 await Task.WhenAny(monitoringTasks).ConfigureAwait(false);
 
-                for (var i = 0; i < monitoringTasks.Length; ++i)
+                for (var i = 0; i < monitoringTasks.Count; ++i)
                 {
                     var task = monitoringTasks[i];
 
@@ -181,11 +234,56 @@ namespace DotPulsar.Internal
 
                 if (activeConsumers == 0)
                     _state.SetState(ConsumerState.Disconnected);
-                else if (activeConsumers == monitoringTasks.Length)
+                else if (activeConsumers == monitoringTasks.Count)
                     _state.SetState(ConsumerState.Active);
                 else
                     _state.SetState(ConsumerState.PartiallyActive);
             }
+        }
+
+        private static GetTopicsUnderNamespaceMode ConvertRegexSubscriptionMode(
+            RegexSubscriptionMode regexSubscriptionMode)
+        {
+            return regexSubscriptionMode switch
+            {
+                RegexSubscriptionMode.PersistentOnly => GetTopicsUnderNamespaceMode.PERSISTENT,
+                RegexSubscriptionMode.NonPersistentOnly => GetTopicsUnderNamespaceMode.NON_PERSISTENT,
+                RegexSubscriptionMode.AllTopics => GetTopicsUnderNamespaceMode.ALL,
+                _ => throw new ArgumentOutOfRangeException(nameof(regexSubscriptionMode), regexSubscriptionMode, null)
+            };
+        }
+
+        private async Task<List<string>> GetPatternTopic(string pattern)
+        {
+            var destination = new TopicName(pattern);
+            var mode = ConvertRegexSubscriptionMode(RegexSubscriptionMode);
+            NamespaceName namespaceName = destination.GetNamespaceName();
+
+            var pbMode = mode switch
+            {
+                GetTopicsUnderNamespaceMode.PERSISTENT => CommandGetTopicsOfNamespace.ModeType.Persistent,
+                GetTopicsUnderNamespaceMode.NON_PERSISTENT => CommandGetTopicsOfNamespace.ModeType.NonPersistent,
+                GetTopicsUnderNamespaceMode.ALL => CommandGetTopicsOfNamespace.ModeType.All,
+                _ => throw new ArgumentOutOfRangeException()
+            };
+
+            var req = new CommandGetTopicsOfNamespace { Namespace = namespaceName.ToString(), Mode = pbMode };
+            var connection = await _connectionPool.GetConnection(ServiceUrl, _cts.Token).ConfigureAwait(false);
+            var response = await connection.Send(req, _cts.Token).ConfigureAwait(false);
+            response.Expect(BaseCommand.Type.GetTopicsOfNamespaceResponse);
+
+            var topics = response.GetTopicsOfNamespaceResponse.Topics;
+
+            Regex topicPatternRegex = TopicsPattern.Contains("://")
+                ? new Regex(TopicsPattern.Split(new[] { "://" }, StringSplitOptions.None)[1])
+                : new Regex(TopicsPattern);
+
+            var filteredTopics = topics.Select(n => new TopicName(n))
+                .Select(n => n.ToString())
+                .Where(n => topicPatternRegex.IsMatch(n.Split(new[] { "://" }, StringSplitOptions.None)[1]))
+                .ToList();
+
+            return filteredTopics;
         }
 
         private async Task<uint> GetNumberOfPartitions(string topic, CancellationToken cancellationToken)
@@ -205,7 +303,8 @@ namespace DotPulsar.Internal
         public async ValueTask<ConsumerState> OnStateChangeTo(ConsumerState state, CancellationToken cancellationToken)
             => await _state.StateChangedTo(state, cancellationToken).ConfigureAwait(false);
 
-        public async ValueTask<ConsumerState> OnStateChangeFrom(ConsumerState state, CancellationToken cancellationToken)
+        public async ValueTask<ConsumerState> OnStateChangeFrom(ConsumerState state,
+            CancellationToken cancellationToken)
             => await _state.StateChangedFrom(state, cancellationToken).ConfigureAwait(false);
 
         public bool IsFinalState()
@@ -234,7 +333,8 @@ namespace DotPulsar.Internal
         {
             ThrowIfDisposed();
 
-            return await _executor.Execute(() => ReceiveMessage(cancellationToken), cancellationToken).ConfigureAwait(false);
+            return await _executor.Execute(() => ReceiveMessage(cancellationToken), cancellationToken)
+                .ConfigureAwait(false);
         }
 
         private async ValueTask<IMessage<TMessage>> ReceiveMessage(CancellationToken cancellationToken)
@@ -245,11 +345,15 @@ namespace DotPulsar.Internal
                 return message;
 
             var cts = new CancellationTokenSource();
-            Task<IMessage<TMessage>>[] receiveTasks = _consumers.Values.Select(consumer => consumer.Receive(cts.Token).AsTask()).ToArray();
+
+            Task<IMessage<TMessage>>[] receiveTasks =
+                _consumers.Values.Select(consumer => consumer.Receive(cts.Token).AsTask()).ToArray();
             await Task.WhenAny(receiveTasks).ConfigureAwait(false);
 
             receiveTasks.Where(t => t.IsCompleted).ToList().ForEach(t =>
-                _messagesQueue.Enqueue(t.Result)
+                {
+                    _messagesQueue.Enqueue(t.Result);
+                }
             );
 
             cts.Cancel();
@@ -259,31 +363,33 @@ namespace DotPulsar.Internal
             return message;
         }
 
-        public async ValueTask Acknowledge(MessageId messageId, CancellationToken cancellationToken)
+        public async ValueTask Acknowledge(IMessage message, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
 
             await _executor.Execute(() =>
                 {
                     ThrowIfNotActive();
-                    return _consumers[_isPartitionedTopic ? messageId.Partition : 0].Acknowledge(messageId, cancellationToken);
+                    return _consumers[message.Topic].Acknowledge(message, cancellationToken);
                 }, cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        public async ValueTask AcknowledgeCumulative(MessageId messageId, CancellationToken cancellationToken)
+        public async ValueTask AcknowledgeCumulative(IMessage message, CancellationToken cancellationToken)
         {
             ThrowIfDisposed();
 
             await _executor.Execute(() =>
                 {
                     ThrowIfNotActive();
-                    return _consumers[_isPartitionedTopic ? messageId.Partition : 0].AcknowledgeCumulative(messageId, cancellationToken);
+
+                    return _consumers[message.Topic].AcknowledgeCumulative(message, cancellationToken);
                 }, cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        public async ValueTask RedeliverUnacknowledgedMessages(IEnumerable<MessageId> messageIds, CancellationToken cancellationToken = default)
+        public async ValueTask RedeliverUnacknowledgedMessages(IEnumerable<IMessage> messages,
+            CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
 
@@ -291,8 +397,8 @@ namespace DotPulsar.Internal
             {
                 ThrowIfNotActive();
 
-                var tasks = messageIds.ToList().Select(messageId =>
-                    _consumers[_isPartitionedTopic ? messageId.Partition : 0].RedeliverUnacknowledgedMessages(cancellationToken).AsTask()
+                var tasks = messages.ToList().Select(n =>
+                    _consumers[n.Topic].RedeliverUnacknowledgedMessages(cancellationToken).AsTask()
                 );
                 await Task.WhenAll(tasks).ConfigureAwait(false);
             }, cancellationToken).ConfigureAwait(false);
@@ -342,9 +448,9 @@ namespace DotPulsar.Internal
             {
                 ThrowIfNotActive();
 
-                if (_isPartitionedTopic && messageId.Equals(null) || IsIllegalMultiTopicsMessageId(messageId))
+                if (_consumers.Values.All(n => messageId.Equals(null) && n.NumberOfPartitions != 0) || IsIllegalMultiTopicsMessageId(messageId))
                 {
-                    throw new ArgumentException("Illegal messageId, messageId can only be earliest/latest.");
+                    throw new ArgumentException("Illegal messageId can only be earliest/latest.");
                 }
 
                 var tasks = _consumers.Values.ToList().Select(consumer =>
@@ -371,21 +477,36 @@ namespace DotPulsar.Internal
             }, cancellationToken).ConfigureAwait(false);
         }
 
-        public async ValueTask<MessageId> GetLastMessageId(CancellationToken cancellationToken)
+        public async ValueTask<IMessageId> GetLastMessageId(CancellationToken cancellationToken)
         {
             ThrowIfDisposed();
 
             var getLastMessageId = new CommandGetLastMessageId();
-            return await _executor.Execute(() => GetLastMessageId(getLastMessageId, cancellationToken), cancellationToken).ConfigureAwait(false);
+
+            return await _executor
+                .Execute(() => GetLastMessageId(getLastMessageId, cancellationToken), cancellationToken)
+                .ConfigureAwait(false);
         }
 
-        private async ValueTask<MessageId> GetLastMessageId(CommandGetLastMessageId command, CancellationToken cancellationToken)
+        private async ValueTask<IMessageId> GetLastMessageId(CommandGetLastMessageId command,
+            CancellationToken cancellationToken)
         {
             ThrowIfNotActive();
 
-            if (_isPartitionedTopic)
-                throw new NotImplementedException();
-            return await _consumers[0].GetLastMessageId(cancellationToken).ConfigureAwait(false);
+            if (_consumers.Count == 1)
+            {
+                return await _consumers.Values.First().GetLastMessageId(cancellationToken).ConfigureAwait(false);
+            }
+
+            var messageIdMap = new Dictionary<string, IMessageId>();
+
+            foreach (var consumer in _consumers)
+            {
+                var m = await consumer.Value.GetLastMessageId(cancellationToken).ConfigureAwait(false);
+                messageIdMap.Add(consumer.Key, m);
+            }
+
+            return new MultiMessageId(messageIdMap);
         }
 
         private void ThrowIfDisposed()

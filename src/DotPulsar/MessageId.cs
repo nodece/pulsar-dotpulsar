@@ -14,6 +14,7 @@
 
 namespace DotPulsar
 {
+    using Abstractions;
     using DotPulsar.Internal.Extensions;
     using Internal.PulsarApi;
     using System;
@@ -21,7 +22,7 @@ namespace DotPulsar
     /// <summary>
     /// Unique identifier of a single message.
     /// </summary>
-    public sealed class MessageId : IEquatable<MessageId>, IComparable<MessageId>
+    public class MessageId : IMessageId, IEquatable<MessageId>
     {
         static MessageId()
         {
@@ -70,20 +71,30 @@ namespace DotPulsar
         /// </summary>
         public int BatchIndex { get; }
 
-        public int CompareTo(MessageId? other)
+        public int CompareTo(object i)
         {
-            if (other is null)
+            if (i is null)
                 return 1;
 
+            if (i.GetType() != GetType())
+            {
+                throw new Exception("expected MessageId object. Got instance of " + i.GetType());
+            }
+
+            var other = i as MessageId;
+
             var result = LedgerId.CompareTo(other.LedgerId);
+
             if (result != 0)
                 return result;
 
             result = EntryId.CompareTo(other.EntryId);
+
             if (result != 0)
                 return result;
 
             result = Partition.CompareTo(other.Partition);
+
             if (result != 0)
                 return result;
 
